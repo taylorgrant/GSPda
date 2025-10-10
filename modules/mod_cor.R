@@ -1,12 +1,12 @@
 mod_cor_ui <- function(id) {
-  ns <- NS(id)
-  tagList(
-    selectInput(
+  ns <- shiny::NS(id)
+  shiny::tagList(
+    shiny::selectInput(
       ns("method"),
       "Method",
       choices = c("Pearson" = "pearson", "Spearman" = "spearman")
     ),
-    selectInput(
+    shiny::selectInput(
       ns("cols"),
       "Select variables to correlate",
       choices = NULL,
@@ -33,7 +33,7 @@ mod_cor_ui <- function(id) {
 }
 
 mod_cor_server <- function(id, data) {
-  moduleServer(id, function(input, output, session) {
+  shiny::moduleServer(id, function(input, output, session) {
     observeEvent(data(), {
       req(data())
       nums <- names(data())[sapply(data(), is.numeric)]
