@@ -1,11 +1,10 @@
-library(shiny)
-library(highcharter)
-library(bslib)
+pacman::p_load(shiny, highcharter, bslib)
+
 
 source("modules/mod_upload.R")
 source("modules/mod_cor.R")
 
-ui <- page_sidebar(
+ui <- bslib::page_sidebar(
   theme = bs_theme(), # optional theming
   sidebar = sidebar(
     h4("Data"),
@@ -24,4 +23,4 @@ server <- function(input, output, session) {
   mod_cor_server("c1", d)
 }
 
-shinyApp(ui, server)
+shiny::shinyApp(ui, server)
