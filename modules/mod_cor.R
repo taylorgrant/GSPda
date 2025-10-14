@@ -20,7 +20,7 @@ mod_cor_ui <- function(id) {
     br(),
     br(),
     verbatimTextOutput(ns("out")),
-    highcharter::highchartOutput(ns("heatmap"), height = "500px"),
+    plotOutput(ns("heatmap"), height = "500px"),
     br(),
     tags$small(
       strong("Rule of thumb: "),
@@ -90,37 +90,33 @@ mod_cor_server <- function(id, data) {
     })
 
     # Heatmap (2×2 if two columns)
-    output$heatmap <- highcharter::renderHighchart({
+    output$heatmap <- renderPlot({
       req(res(), !is.null(res()$mat))
+
       df <- as.data.frame(as.table(res()$mat))
-      highcharter::hchart(
-        df,
-        "heatmap",
-        highcharter::hcaes(x = Var1, y = Var2, value = Freq)
-      ) |>
-        highcharter::hc_colorAxis(
-          min = -1,
-          max = 1,
-          stops = list(
-            list(0, "#2166AC"),
-            list(0.5, "#F7F7F7"),
-            list(1, "#B2182B")
-          )
-        ) |>
-        highcharter::hc_plotOptions(
-          heatmap = list(
-            dataLabels = list(enabled = TRUE, format = "{point.value:.2f}"),
-            borderWidth = 0
-          )
-        ) |>
-        highcharter::hc_xAxis(title = list(text = NULL)) |>
-        highcharter::hc_yAxis(title = list(text = NULL), reversed = TRUE) |>
-        highcharter::hc_tooltip(
-          pointFormat = "<b>{point.Var2}–{point.Var1}</b>: {point.value:.2f}"
-        ) |>
-        highcharter::hc_exporting(
-          enabled = TRUE,
-          filename = "correlation-heatmap"
+      names(df) <- c("Var1", "Var2", "value")
+
+      ggplot2::ggplot(df, ggplot2::aes(x = Var1, y = Var2, fill = value)) +
+        ggplot2::geom_tile(color = "white") +
+        ggplot2::geom_text(
+          ggplot2::aes(label = sprintf("%.2f", value)),
+          size = 3
+        ) +
+        ggplot2::scale_fill_gradient2(
+          low = "#2166AC",
+          mid = "#F7F7F7",
+          high = "#B2182B",
+          midpoint = 0,
+          limits = c(-1, 1),
+          name = "Correlation"
+        ) +
+        ggplot2::coord_fixed() +
+        ggplot2::labs(x = NULL, y = NULL) +
+        ggplot2::theme_minimal(base_size = 12) +
+        ggplot2::theme(
+          axis.text.x = element_text(angle = 45, hjust = 1),
+          panel.grid = element_blank(),
+          legend.position = "right"
         )
     })
 
