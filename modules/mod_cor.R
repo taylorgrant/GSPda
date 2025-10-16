@@ -114,8 +114,8 @@ mod_cor_server <- function(id, data) {
         ggplot2::labs(x = NULL, y = NULL) +
         ggplot2::theme_minimal(base_size = 12) +
         ggplot2::theme(
-          axis.text.x = element_text(angle = 45, hjust = 1),
-          panel.grid = element_blank(),
+          axis.text.x = ggplot2::element_text(angle = 45, hjust = 1),
+          panel.grid = ggplot2::element_blank(),
           legend.position = "right"
         )
     })
