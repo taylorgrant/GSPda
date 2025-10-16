@@ -55,6 +55,51 @@ mod_eda_ui <- function(id) {
           ),
           shiny::column(8, shiny::plotOutput(ns("scatter_plot"), height = 360))
         )
+      ),
+
+      # UI: t-test -------------------------------------------------------------
+      shiny::tabPanel(
+        "t-test",
+        shiny::fluidRow(
+          shiny::column(
+            4,
+            shiny::radioButtons(
+              ns("ttest_mode"),
+              "Test type",
+              choices = c(
+                "Two-sample (by group)" = "two_sample",
+                "Paired (two columns)" = "paired",
+                "One-sample (mean)" = "one_sample"
+              ),
+              selected = "paired"
+            ),
+            shiny::uiOutput(ns("ttest_controls")),
+            shiny::selectInput(
+              ns("ttest_alt"),
+              "Alternative hypothesis",
+              choices = c("two.sided", "less", "greater"),
+              selected = "two.sided"
+            ),
+            shiny::numericInput(
+              ns("ttest_conf"),
+              "Confidence level",
+              value = 0.95,
+              min = 0.5,
+              max = 0.999,
+              step = 0.01
+            ),
+            shiny::checkboxInput(
+              ns("ttest_na_rm"),
+              "Remove missing values",
+              TRUE
+            )
+          ),
+          shiny::column(
+            8,
+            shiny::h5("Results"),
+            shiny::verbatimTextOutput(ns('ttest_print'))
+          )
+        )
       )
     )
   )
@@ -241,6 +286,244 @@ mod_eda_server <- function(id, data) {
         p <- p + ggplot2::geom_smooth(method = "loess", se = TRUE)
       }
       p
+    })
+    # -------------------------- t-test logic -------------------------------
+    output$ttest_controls <- shiny::renderUI({
+      ci <- colinfo()
+      req(ci)
+      num_choices <- ci$name[ci$is_num]
+      fac_choices <- ci$name[ci$is_fac]
+
+      switch(
+        input$ttest_mode %||% "two_sample",
+        "two_sample" = shiny::tagList(
+          shiny::selectInput(
+            ns("ttest_y"),
+            "Outcome (numeric)",
+            choices = num_choices
+          ),
+          shiny::selectInput(
+            ns("ttest_group"),
+            "Group (2 levels)",
+            choices = fac_choices
+          ),
+          shiny::checkboxInput(
+            ns("ttest_var_equal"),
+            "Assume equal variances",
+            FALSE
+          )
+        ),
+        "paired" = shiny::tagList(
+          shiny::selectInput(
+            ns("ttest_a"),
+            "Column A (numeric)",
+            choices = num_choices
+          ),
+          shiny::selectInput(
+            ns("ttest_b"),
+            "Column B (numeric)",
+            choices = num_choices,
+            selected = num_choices[2] %||% num_choices[1]
+          )
+        ),
+        "one_sample" = shiny::tagList(
+          shiny::selectInput(
+            ns("ttest_y1"),
+            "Variable (numeric)",
+            choices = num_choices
+          ),
+          shiny::numericInput(
+            ns("ttest_mu"),
+            "Null mean (μ₀)",
+            value = 0,
+            step = 0.1
+          )
+        )
+      )
+    })
+
+    ttest_result <- shiny::reactive({
+      df <- data()
+      req(df, input$ttest_mode, input$ttest_alt, input$ttest_conf)
+
+      mode <- input$ttest_mode
+      alt <- input$ttest_alt
+      conf <- input$ttest_conf
+
+      if (mode == "two_sample") {
+        req(input$ttest_y, input$ttest_group)
+        y <- df[[input$ttest_y]]
+        g <- as.factor(df[[input$ttest_group]])
+        d <- tibble::tibble(y = y, g = g)
+        if (isTRUE(input$ttest_na_rm)) {
+          d <- d |> dplyr::filter(!is.na(y) & !is.na(g))
+        }
+        shiny::validate(shiny::need(
+          nlevels(d$g) == 2,
+          "Group must have exactly 2 levels after NA handling."
+        ))
+        res <- stats::t.test(
+          y ~ g,
+          data = d,
+          alternative = alt,
+          var.equal = isTRUE(input$ttest_var_equal),
+          conf.level = conf
+        )
+        list(mode = mode, res = res, data = d)
+      } else if (mode == "paired") {
+        req(input$ttest_a, input$ttest_b)
+        a <- df[[input$ttest_a]]
+        b <- df[[input$ttest_b]]
+        d <- tibble::tibble(a = a, b = b)
+        if (isTRUE(input$ttest_na_rm)) {
+          d <- d |> dplyr::filter(!is.na(a) & !is.na(b))
+        }
+        shiny::validate(shiny::need(
+          nrow(d) > 1,
+          "Not enough paired observations after NA handling."
+        ))
+        res <- stats::t.test(
+          d$a,
+          d$b,
+          paired = TRUE,
+          alternative = alt,
+          conf.level = conf
+        )
+        list(mode = mode, res = res, data = d)
+      } else {
+        # one_sample
+        req(input$ttest_y1, input$ttest_mu)
+        y <- df[[input$ttest_y1]]
+        if (isTRUE(input$ttest_na_rm)) {
+          y <- y[!is.na(y)]
+        }
+        shiny::validate(shiny::need(
+          length(y) > 1,
+          "Not enough observations after NA handling."
+        ))
+        res <- stats::t.test(
+          y,
+          mu = input$ttest_mu,
+          alternative = alt,
+          conf.level = conf
+        )
+        list(mode = mode, res = res, data = tibble::tibble(y = y))
+      }
+    })
+
+    output$ttest_print <- shiny::renderPrint({
+      tr <- ttest_result()
+      req(tr)
+      print(tr$res)
+      if (tr$mode == "paired") {
+        cat("\nPaired column means:\n")
+        with(
+          tr$data,
+          cat(
+            "Mean(A) =",
+            mean(a, na.rm = TRUE),
+            " | mean(B) = ",
+            mean(b, na.rm = TRUE),
+            "\n"
+          )
+        )
+      }
+    })
+    output$ttest_table <- shiny::renderTable(
+      {
+        tr <- ttest_result()
+        req(tr)
+        tt <- tr$res
+        est <- tt$estimate
+        est_names <- names(est)
+
+        df_out <- data.frame(
+          statistic = unname(tt$statistic),
+          df = unname(tt$parameter),
+          p_value = tt$p.value,
+          conf_low = tt$conf.int[1],
+          conf_high = tt$conf.int[2],
+          alternative = tt$alternative,
+          stringsAsFactors = FALSE
+        )
+
+        # add estimates columns with safe names
+        if (!is.null(est)) {
+          for (i in seq_along(est)) {
+            nm <- if (!is.null(est_names)) {
+              est_names[i]
+            } else {
+              paste0("estimate_", i)
+            }
+            df_out[[nm]] <- est[[i]]
+          }
+        }
+        as.data.frame(lapply(df_out, function(v) {
+          if (is.numeric(v)) round(v, 5) else v
+        }))
+      },
+      bordered = TRUE,
+      striped = TRUE
+    )
+
+    output$ttest_plot <- shiny::renderPlot({
+      tr <- ttest_result()
+      req(tr)
+      mode <- tr$mode
+      tt <- tr$res
+
+      if (mode == "two_sample") {
+        d <- tr$data
+        ggplot2::ggplot(d, ggplot2::aes(x = g, y = y)) +
+          ggplot2::geom_boxplot(alpha = 0.7) +
+          ggplot2::geom_jitter(width = 0.1, alpha = 0.5) +
+          ggplot2::labs(
+            x = names(d)[2],
+            y = names(d)[1],
+            subtitle = paste0("p = ", signif(tt$p.value, 4))
+          ) +
+          ggplot2::theme_minimal()
+      } else if (mode == "paired") {
+        d <- tr$data
+        d$diff <- d$a - d$b
+        ggplot2::ggplot(d, ggplot2::aes(x = diff)) +
+          ggplot2::geom_histogram(bins = 30, alpha = 0.8) +
+          ggplot2::geom_density() +
+          ggplot2::geom_vline(
+            xintercept = mean(d$diff, na.rm = TRUE),
+            linetype = "dashed"
+          ) +
+          ggplot2::labs(
+            x = "Difference (A - B)",
+            subtitle = paste0("p = ", signif(tt$p.value, 4))
+          ) +
+          ggplot2::theme_minimal()
+      } else {
+        d <- tr$data
+        ggplot2::ggplot(d, ggplot2::aes(x = y)) +
+          ggplot2::geom_histogram(bins = 30, alpha = 0.8) +
+          ggplot2::geom_density() +
+          ggplot2::geom_vline(
+            xintercept = mean(d$y, na.rm = TRUE),
+            linetype = "dashed"
+          ) +
+          ggplot2::geom_vline(
+            xintercept = input$ttest_mu %||% 0,
+            linetype = "dotted"
+          ) +
+          ggplot2::labs(
+            x = "Values",
+            subtitle = paste0(
+              "p = ",
+              signif(tt$p.value, 4),
+              "  |  μ̂ = ",
+              round(mean(d$y, na.rm = TRUE), 3),
+              "  vs  μ₀ = ",
+              input$ttest_mu %||% 0
+            )
+          ) +
+          ggplot2::theme_minimal()
+      }
     })
   })
 }
