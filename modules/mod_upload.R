@@ -29,13 +29,16 @@ mod_upload_server <- function(id) {
         ext,
         csv = function() {
           # quiet, reasonable defaults
-          readr::read_csv(path, show_col_types = FALSE, guess_max = 5000)
+          readr::read_csv(path, show_col_types = FALSE, guess_max = 5000) |>
+            janitor::clean_names()
         },
         xlsx = function() {
-          readxl::read_excel(path, .name_repair = "unique")
+          readxl::read_excel(path, .name_repair = "unique") |>
+            janitor::clean_names()
         },
         xls = function() {
-          readxl::read_excel(path, .name_repair = "unique")
+          readxl::read_excel(path, .name_repair = "unique") |>
+            janitor::clean_names()
         },
         {
           shiny::validate(shiny::need(
